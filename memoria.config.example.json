@@ -1,0 +1,11 @@
+{
+  "dir_sessions": "sessions",
+  "dir_logs": "logs",
+  "dir_projects": "projects",
+  "dir_tools": "tools",
+  "dir_context": "context",
+  "dir_archive": "archive",
+  "context_file": "context.md",
+  "state_file": "_state.md",
+  "retention_days": 14
+}

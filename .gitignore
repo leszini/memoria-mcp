@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment (never commit your actual .env)
+.env
+
+# Memory data (don't commit personal memory content)
+# Uncomment these if you're using the repo as both code AND data:
+# context/
+# sessions/
+# logs/
+# projects/
+# tools/
+# archive/
+# _state.md
+# *.config.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

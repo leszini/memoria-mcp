@@ -1,0 +1,11 @@
+{
+  "dir_sessions": "sessions",
+  "dir_logs": "naplo",
+  "dir_projects": "projektek",
+  "dir_tools": "eszkozok",
+  "dir_context": "kontextus",
+  "dir_archive": "archiv",
+  "context_file": "helyzet.md",
+  "state_file": "_state.md",
+  "retention_days": 14
+}
