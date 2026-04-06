@@ -82,6 +82,8 @@ Replace both paths with your actual locations. On Linux/macOS, use `python3` as 
 
 `MEMORIA_ROOT` is the only required setting. All other options are optional (see [Configuration](#configuration) below).
 
+> **Important:** You also need to enable the **Filesystem MCP** integration in Claude Desktop. Go to **Settings → Integrations** and toggle it on. Without it, Claude won't be able to access the memory files on your system. This is a one-click setup — no configuration needed.
+
 ### Step 4 — Tell Claude how to use its memory
 
 Go to **Settings → Profile → User preferences** in Claude.ai and add something like:
