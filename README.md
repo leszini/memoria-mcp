@@ -170,6 +170,7 @@ From this point on, Claude maintains the context itself: updating deadlines, log
 | `archive(dry_run=True)` | Preview what would be archived |
 | `archive(dry_run=False)` | Archive old sessions/logs into monthly digests |
 | `archive_project(path)` | Archive a completed project |
+| `archive_generic(file_path, reason)` | Archive a single file from `tools/` or `projects/` into a dated folder, with a per-subdir digest trail |
 
 ## How archival works
 
@@ -183,6 +184,11 @@ The memory system grows over time. Without archival, file count and search times
 
 **Manual archival** (`archive_project()` tool):
 - For completed projects, moves files to `archive/projects/`
+
+**Per-file archival** (`archive_generic()` tool):
+- For a single obsolete tool-spec or project doc, moves it to `archive/{subdir}/YYYY-MM-DD/{file}`
+- Appends a one-line entry (file + reason) to `archive/digest/{subdir}_digest.md` so you can later grep "why did I archive X?"
+- Whitelisted to `tools/` and `projects/` only — `sessions/` and `logs/` use `archive()`, other directories are intentionally excluded
 
 **Archive search** (`search_archive()` tool):
 - Searches both monthly digests and raw archived files

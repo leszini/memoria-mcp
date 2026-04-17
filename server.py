@@ -16,6 +16,7 @@ Features:
 - Reflection engine: synthesize everything known about a topic
 - Context staleness detection and update suggestions
 - Automatic archival of old sessions and logs (configurable retention)
+- Per-file archival of tools and projects with a dated folder and per-subdir digest
 - Full-text search across all memory files
 
 Usage:
@@ -1231,6 +1232,125 @@ def archive_project(path: str) -> str:
     shutil.move(str(source), str(dest))
 
     return f"OK: Archived {path} → {DIR_ARCHIVE}/{DIR_PROJECTS}/{source.name}"
+
+
+# Subdirectories allowed for per-file archival via archive_generic().
+# sessions/logs use archive() for bulk processing; context and the archive
+# directory itself are intentionally excluded (live references or
+# already-archived content).
+ARCHIVE_GENERIC_WHITELIST = {DIR_TOOLS, DIR_PROJECTS}
+
+
+@mcp.tool()
+def archive_generic(
+    file_path: str,
+    reason: str,
+    digest_entry: bool = True,
+) -> str:
+    """Archive a single obsolete file from a whitelisted subdirectory.
+
+    Complements the other archive tools:
+    - archive() handles sessions/logs in bulk with monthly digests.
+    - archive_project() moves completed projects to the archive/projects folder.
+    - archive_generic() (this tool) moves single files from the tools or
+      projects subdirectory into a dated folder
+      ({DIR_ARCHIVE}/{subdir}/YYYY-MM-DD/{file}) and optionally appends the
+      reason to {DIR_ARCHIVE}/digest/{subdir}_digest.md so the
+      "why did I archive this?" question stays searchable later.
+
+    Use this when a single tool-spec or project doc has become obsolete
+    (draft superseded, one-off experiment, decision captured elsewhere)
+    and you want it out of the active set without losing the reason.
+
+    Args:
+        file_path: Relative path of the file to archive
+            (e.g., "tools/old_spec.md"). Must be inside a whitelisted
+            subdirectory — by default the directories configured as
+            DIR_TOOLS and DIR_PROJECTS.
+        reason: 1-2 sentence explanation of why the file is obsolete.
+            Written into the digest if digest_entry is True.
+        digest_entry: If True (default), append an entry to the subdir's
+            digest file under today's date. Set to False for silent archival.
+
+    Returns:
+        Confirmation string with the archived destination path.
+
+    Raises:
+        FileNotFoundError: The source file does not exist.
+        ValueError: The path is not in the whitelist, is malformed, or is a
+            path traversal attempt (the latter caught by _safe_path).
+    """
+    # Normalize separators for the whitelist check
+    normalized = file_path.replace("\\", "/").lstrip("./")
+    parts = [p for p in normalized.split("/") if p]
+
+    if len(parts) < 2:
+        raise ValueError(
+            f"file_path must include a subdirectory (e.g. '{DIR_TOOLS}/x.md'), got: {file_path!r}"
+        )
+
+    subdir = parts[0]
+    if subdir not in ARCHIVE_GENERIC_WHITELIST:
+        raise ValueError(
+            f"Subdirectory '{subdir}' is not in the archive_generic whitelist. "
+            f"Allowed: {sorted(ARCHIVE_GENERIC_WHITELIST)}. "
+            f"For sessions/logs use archive(); context and the archive "
+            f"directory itself are intentionally excluded."
+        )
+
+    # Resolve + validate source (this also catches path traversal via _safe_path)
+    source_full = _safe_path(file_path)
+    if not os.path.isfile(source_full):
+        raise FileNotFoundError(f"Not found: {file_path}")
+
+    # Build destination: {DIR_ARCHIVE}/{subdir}/YYYY-MM-DD/{filename}
+    today = _today()
+    filename = os.path.basename(source_full)
+    dest_rel = f"{DIR_ARCHIVE}/{subdir}/{today}/{filename}"
+    dest_full = _safe_path(dest_rel)
+
+    # Collision: same filename already archived today → append HHMMSS suffix
+    if os.path.exists(dest_full):
+        stem, ext = os.path.splitext(filename)
+        timestamp = datetime.now().strftime("%H%M%S")
+        filename = f"{stem}_{timestamp}{ext}"
+        dest_rel = f"{DIR_ARCHIVE}/{subdir}/{today}/{filename}"
+        dest_full = _safe_path(dest_rel)
+
+    os.makedirs(os.path.dirname(dest_full), exist_ok=True)
+    shutil.move(source_full, dest_full)
+
+    # Digest entry (optional)
+    digest_updated = False
+    if digest_entry:
+        digest_rel = f"{DIR_ARCHIVE}/digest/{subdir}_digest.md"
+        digest_full = _safe_path(digest_rel)
+        day_header = f"## {today}"
+        entry_line = f"- `{file_path}` — {reason}\n"
+
+        if os.path.isfile(digest_full):
+            existing = _read_file(digest_rel)
+            if day_header in existing:
+                # Today's section already exists — just append the line.
+                _append_file(digest_rel, entry_line)
+            else:
+                # Start a new dated section at the end of the digest.
+                _append_file(digest_rel, f"\n{day_header}\n{entry_line}")
+        else:
+            initial = (
+                f"# Archive digest: {subdir}/\n\n"
+                f"_Chronological trail of files archived from {subdir}/ via "
+                f"archive_generic(). Each entry ties a date to a file and a "
+                f"short reason._\n\n"
+                f"{day_header}\n{entry_line}"
+            )
+            _write_file(digest_rel, initial)
+        digest_updated = True
+
+    msg = f"OK: archived {file_path} → {dest_rel}"
+    if digest_updated:
+        msg += f" (digest: {DIR_ARCHIVE}/digest/{subdir}_digest.md)"
+    return msg
 
 
 @mcp.tool()
