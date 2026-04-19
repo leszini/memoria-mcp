@@ -161,7 +161,8 @@ From this point on, Claude maintains the context itself: updating deadlines, log
 |------|-------------|
 | `list_memory_files(subdir)` | List files in the memory system |
 | `read_memory_file(path)` | Read any memory file |
-| `write_memory_file(path, content)` | Create or update a file |
+| `write_memory_file(path, content)` | Create or update a file (with server-side integrity check) |
+| `append_memory_file(path, content, truncate_first=False)` | Append (or replace+write) a memory file in chunks; works around transport-layer truncation on large writes |
 
 ### Archival
 

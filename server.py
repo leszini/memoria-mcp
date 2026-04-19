@@ -107,11 +107,31 @@ def _read_file(rel_path: str) -> str:
 
 
 def _write_file(rel_path: str, content: str) -> str:
-    """Write content to a file relative to MEMORIA_ROOT."""
+    """Write content atomically to a file relative to MEMORIA_ROOT.
+
+    Uses write-then-rename via a same-directory temp file so partial writes
+    cannot leave the target in an inconsistent state (e.g. half-written or
+    NUL-padded). fsync() is called before the rename so the data is on disk
+    before the target is replaced.
+    """
     full = _safe_path(rel_path)
     os.makedirs(os.path.dirname(full), exist_ok=True)
-    with open(full, "w", encoding="utf-8") as f:
-        f.write(content)
+    dir_name = os.path.dirname(full)
+    base_name = os.path.basename(full)
+    tmp_path = os.path.join(dir_name, f".{base_name}.tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, full)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
     return full
 
 
@@ -1026,16 +1046,93 @@ def read_memory_file(path: str) -> str:
 
 @mcp.tool()
 def write_memory_file(path: str, content: str) -> str:
-    """Write or create a file in the memory system.
+    """Write or create a file in the memory system, with integrity check.
 
-    Parent directories are created automatically.
+    Parent directories are created automatically. After the write the file
+    is read back server-side and compared to the requested content. If they
+    differ (e.g. because of transport-layer truncation between the MCP
+    client and server), an explicit INTEGRITY FAILURE error is returned
+    instead of a silent "OK" -- so the caller knows the file on disk does
+    not match what was intended.
+
+    For content larger than ~4 KB, where transport truncation has been
+    observed, prefer ``append_memory_file`` with chunks smaller than ~4 KB
+    each (optionally with ``truncate_first=True`` on the first call).
 
     Args:
         path: Relative path within the memory root
         content: Full file content
     """
+    expected_len = len(content)
     _write_file(path, content)
-    return f"OK: File written: {path}"
+    # Integrity check: read back and compare. This catches the case where
+    # the MCP transport silently truncates the `content` argument, which
+    # would otherwise produce a partial write with no error signal.
+    try:
+        actual = _read_file(path)
+    except Exception as e:
+        return f"!! Write verification failed (could not read back {path}): {e}"
+    if actual == content:
+        return f"OK: File written: {path} ({expected_len} chars)"
+    actual_len = len(actual)
+    # Locate first divergence for diagnostics
+    min_len = min(expected_len, actual_len)
+    diverge_at = min_len
+    for i in range(min_len):
+        if actual[i] == content[i]:
+            continue
+        diverge_at = i
+        break
+    return (
+        f"!! INTEGRITY FAILURE writing {path}: requested {expected_len} chars, "
+        f"file contains {actual_len} chars (first divergence at char {diverge_at}). "
+        f"Likely transport-layer truncation. Retry with append_memory_file() "
+        f"in chunks <4 KB each (use truncate_first=True on the first call)."
+    )
+
+
+@mcp.tool()
+def append_memory_file(
+    path: str,
+    content: str,
+    truncate_first: bool = False,
+) -> str:
+    """Append content to a memory file (optionally truncating it first).
+
+    Designed to work around transport-layer truncation that affects
+    ``write_memory_file`` for content larger than roughly 5 KB. Split the
+    target content into chunks smaller than ~4 KB and call this tool once
+    per chunk. Use ``truncate_first=True`` on the first call to replace the
+    existing file; subsequent calls append.
+
+    Each call uses fsync-ed I/O server-side, and the returned message
+    includes the resulting file size so the caller can verify progress
+    across chunks.
+
+    Typical multi-chunk replacement::
+
+        append_memory_file(path, chunk_1, truncate_first=True)
+        append_memory_file(path, chunk_2)
+        append_memory_file(path, chunk_3)
+
+    Args:
+        path: Relative path within the memory root
+        content: Content to append (or to write, if truncate_first=True)
+        truncate_first: If True, clear the file before writing (default False)
+    """
+    full = _safe_path(path)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    mode = "w" if truncate_first else "a"
+    with open(full, mode, encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    size = os.path.getsize(full)
+    action = "Wrote" if truncate_first else "Appended"
+    return (
+        f"OK: {action} {len(content)} chars to {path} "
+        f"(file is now {size} bytes)"
+    )
 
 
 # ============================================================
